@@ -45,15 +45,28 @@ class MammoCLIPInferenceEngine:
                 self.device = "cpu"
 
             try:
-                from transformers import AutoModel, AutoProcessor
-                logger.info(f"Loading HuggingFace model '{self.checkpoint}' on {self.device}...")
-                self.processor = AutoProcessor.from_pretrained(self.checkpoint)
-                self.model = AutoModel.from_pretrained(self.checkpoint).to(self.device)
+                logger.info(f"Loading Mammo-CLIP model '{self.checkpoint}' on {self.device}...")
+                
+                # Attempt 1: Load directly via open_clip (Official Mammo-CLIP library)
+                try:
+                    import open_clip
+                    logger.info("Loading via open_clip library...")
+                    self.model, _, self.processor = open_clip.create_model_and_transforms(f"hf-hub:{self.checkpoint}")
+                    self.tokenizer = open_clip.get_tokenizer(f"hf-hub:{self.checkpoint}")
+                    self.model = self.model.to(self.device)
+                except Exception as open_err:
+                    logger.info(f"open_clip load notice ({open_err}), trying transformers CLIPModel...")
+                    from transformers import CLIPModel, CLIPProcessor
+                    self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+                    self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(self.device)
+
                 self.model.eval()
                 self.loaded = True
-                logger.info(f"Mammo-CLIP model loaded successfully on {self.device}")
+                logger.info(f"Mammo-CLIP inference model loaded successfully on {self.device}")
             except Exception as e:
-                logger.warning(f"HuggingFace auto-model load failed for '{self.checkpoint}': {e}.")
+                logger.warning(f"Model load failed: {e}.")
+                self.loaded = False
+                self.error_message = str(e)
                 self.loaded = False
                 self.error_message = str(e)
         except Exception as e:
@@ -79,11 +92,19 @@ class MammoCLIPInferenceEngine:
         inputs = self.processor(text=text_queries, return_tensors="pt", padding=True).to(self.device)
 
         with torch.no_grad():
-            text_features = self.model.get_text_features(**inputs)
+            text_outputs = self.model.get_text_features(**inputs)
+            if not isinstance(text_outputs, torch.Tensor):
+                text_features = getattr(text_outputs, "pooler_output", text_outputs[0])
+            else:
+                text_features = text_outputs
             text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
             image_tensors = torch.tensor(processed_tensors, dtype=torch.float32).to(self.device)
-            image_features = self.model.get_image_features(image_tensors)
+            image_outputs = self.model.get_image_features(image_tensors)
+            if not isinstance(image_outputs, torch.Tensor):
+                image_features = getattr(image_outputs, "pooler_output", image_outputs[0])
+            else:
+                image_features = image_outputs
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
 
             # Cosine similarity and Softmax per view image
