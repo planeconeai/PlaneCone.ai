@@ -1,3 +1,4 @@
+import os
 import time
 import logging
 import threading
@@ -50,14 +51,22 @@ def startup_event():
 @app.get("/shiva-checking")
 def shiva_checking():
     """Diagnostic endpoint checking service status, port, and engine load state."""
-    return {
-        "status": "WORKING",
-        "service": "planeconeai-mammo-ai",
-        "port": os.getenv("PORT", "8000"),
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "model_loaded": engine.loaded,
-        "device": engine.device
-    }
+    try:
+        return {
+            "status": "WORKING",
+            "service": "planeconeai-mammo-ai",
+            "port": os.getenv("PORT", "8000"),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "model_loaded": getattr(engine, "loaded", False),
+            "device": getattr(engine, "device", "cpu")
+        }
+    except Exception as err:
+        return {
+            "status": "WORKING",
+            "service": "planeconeai-mammo-ai",
+            "error": str(err),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        }
 
 @app.get("/health", response_model=HealthResponse)
 def health_check():
