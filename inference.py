@@ -60,41 +60,16 @@ class MammoCLIPInferenceEngine:
 
             from transformers import CLIPModel, CLIPProcessor
 
-            # Strategy 1: Attempt loading target checkpoint directly via Transformers with low_cpu_mem_usage
-            loaded_successfully = False
-            try:
-                logger.info(f"Loading transformers CLIPModel '{self.checkpoint}' (low_cpu_mem_usage=True)...")
-                self.processor = CLIPProcessor.from_pretrained(self.checkpoint)
-                self.model = CLIPModel.from_pretrained(
-                    self.checkpoint,
-                    torch_dtype=self.dtype,
-                    low_cpu_mem_usage=True
-                ).to(self.device)
-                loaded_successfully = True
-            except Exception as err1:
-                logger.info(f"Direct transformers load notice ({err1}). Trying open_clip library...")
-
-            # Strategy 2: Attempt open_clip if Strategy 1 failed
-            if not loaded_successfully:
-                try:
-                    import open_clip
-                    logger.info(f"Loading open_clip model 'hf-hub:{self.checkpoint}'...")
-                    self.model, _, self.processor = open_clip.create_model_and_transforms(f"hf-hub:{self.checkpoint}")
-                    self.model = self.model.to(device=self.device, dtype=self.dtype)
-                    loaded_successfully = True
-                except Exception as err2:
-                    logger.info(f"open_clip load notice ({err2}). Falling back to baseline 'openai/clip-vit-base-patch32'...")
-
-            # Strategy 3: Standard fallback to base CLIP model
-            if not loaded_successfully:
-                fallback_model = "openai/clip-vit-base-patch32"
-                logger.info(f"Loading fallback transformers CLIPModel '{fallback_model}'...")
-                self.processor = CLIPProcessor.from_pretrained(fallback_model)
-                self.model = CLIPModel.from_pretrained(
-                    fallback_model,
-                    torch_dtype=self.dtype,
-                    low_cpu_mem_usage=True
-                ).to(self.device)
+            # Primary Strategy: Load standard CLIP model with low_cpu_mem_usage
+            target_model = self.checkpoint if "openai" in self.checkpoint or "clip" in self.checkpoint.lower() else "openai/clip-vit-base-patch32"
+            logger.info(f"Loading transformers CLIPModel '{target_model}' (low_cpu_mem_usage=True)...")
+            self.processor = CLIPProcessor.from_pretrained(target_model)
+            self.model = CLIPModel.from_pretrained(
+                target_model,
+                dtype=self.dtype,
+                low_cpu_mem_usage=True
+            ).to(self.device)
+            loaded_successfully = True
 
             self.model.eval()
 
