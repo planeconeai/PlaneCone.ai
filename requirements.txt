@@ -1,15 +1,27 @@
+# ── Web Framework ─────────────────────────────────────────────────────────────
 fastapi>=0.95.0,<0.110.0
 uvicorn[standard]>=0.22.0
 pydantic>=1.10.0,<2.0.0
 python-multipart>=0.0.6
-numpy>=1.21.0
+
+# ── CPU-only PyTorch (~200MB vs ~2GB with CUDA) ───────────────────────────────
+# This is the most important optimization — CUDA torch OOMs on Render free tier
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.2+cpu
+torchvision==0.17.2+cpu
+
+# ── ML / Imaging ──────────────────────────────────────────────────────────────
+transformers>=4.28.0,<5.0.0
+accelerate>=0.20.0
+open-clip-torch>=2.20.0,<3.0.0
+numpy>=1.21.0,<2.0.0
 pillow>=9.0.0
+
+# ── DICOM ─────────────────────────────────────────────────────────────────────
 pydicom>=2.3.0
-torch>=2.0.0
-transformers>=4.28.0
-requests>=2.28.0
-pytest>=7.0.0
-open-clip-torch>=2.20.0
 pylibjpeg>=2.0.0
 pylibjpeg-libjpeg>=2.1.0
 pylibjpeg-openjpeg>=2.0.0
+
+# ── HTTP ──────────────────────────────────────────────────────────────────────
+requests>=2.28.0

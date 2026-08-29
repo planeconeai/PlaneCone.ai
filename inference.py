@@ -1,5 +1,6 @@
 import os
 import time
+import gc
 import logging
 from typing import Dict, List, Any, Tuple, Optional
 
@@ -23,8 +24,10 @@ class MammoCLIPInferenceEngine:
         self.model = None
         self.processor = None
         self.device = "cpu"
+        self.dtype = None
         self.error_message = None
         self.checkpoint = CHECKPOINT_NAME
+        self.precomputed_text_features = None
 
     @classmethod
     def get_instance(cls):
@@ -33,47 +36,99 @@ class MammoCLIPInferenceEngine:
         return cls._instance
 
     def load_model(self):
-        """Loads the Mammo-CLIP model at application startup (singleton pattern)."""
+        """
+        Loads the Mammo-CLIP model at application startup in a low-memory, high-performance configuration.
+        """
         logger.info(f"Initializing Mammo-CLIP inference engine ({self.checkpoint})...")
         try:
             import torch
+            # Restrict PyTorch thread count on CPU to prevent resource contention on free tier instances
+            torch.set_num_threads(min(2, os.cpu_count() or 1))
+
             if torch.cuda.is_available():
                 self.device = "cuda"
+                self.dtype = torch.float16
             elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 self.device = "mps"
+                self.dtype = torch.float16
             else:
                 self.device = "cpu"
+                # PyTorch CPU doesn't support FP16 for matrix multiplication (addmm_impl_cpu)
+                self.dtype = torch.float32
 
+            logger.info(f"Targeting device='{self.device}', dtype='{self.dtype}'")
+
+            from transformers import CLIPModel, CLIPProcessor
+
+            # Strategy 1: Attempt loading target checkpoint directly via Transformers with low_cpu_mem_usage
+            loaded_successfully = False
             try:
-                logger.info(f"Loading Mammo-CLIP model '{self.checkpoint}' on {self.device}...")
-                
-                # Attempt 1: Load directly via open_clip (Official Mammo-CLIP library)
+                logger.info(f"Loading transformers CLIPModel '{self.checkpoint}' (low_cpu_mem_usage=True)...")
+                self.processor = CLIPProcessor.from_pretrained(self.checkpoint)
+                self.model = CLIPModel.from_pretrained(
+                    self.checkpoint,
+                    torch_dtype=self.dtype,
+                    low_cpu_mem_usage=True
+                ).to(self.device)
+                loaded_successfully = True
+            except Exception as err1:
+                logger.info(f"Direct transformers load notice ({err1}). Trying open_clip library...")
+
+            # Strategy 2: Attempt open_clip if Strategy 1 failed
+            if not loaded_successfully:
                 try:
                     import open_clip
-                    logger.info("Loading via open_clip library...")
+                    logger.info(f"Loading open_clip model 'hf-hub:{self.checkpoint}'...")
                     self.model, _, self.processor = open_clip.create_model_and_transforms(f"hf-hub:{self.checkpoint}")
-                    self.tokenizer = open_clip.get_tokenizer(f"hf-hub:{self.checkpoint}")
-                    self.model = self.model.half().to(self.device)  # float16 — 50% less RAM
-                except Exception as open_err:
-                    logger.info(f"open_clip load notice ({open_err}), trying transformers CLIPModel...")
-                    from transformers import CLIPModel, CLIPProcessor
-                    self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-                    self.model = CLIPModel.from_pretrained(
-                        "openai/clip-vit-base-patch32",
-                        torch_dtype=torch.float16  # float16 — 50% less RAM
-                    ).to(self.device)
+                    self.model = self.model.to(device=self.device, dtype=self.dtype)
+                    loaded_successfully = True
+                except Exception as err2:
+                    logger.info(f"open_clip load notice ({err2}). Falling back to baseline 'openai/clip-vit-base-patch32'...")
 
-                self.model.eval()
-                self.loaded = True
-                logger.info(f"Mammo-CLIP inference model loaded successfully on {self.device}")
-            except Exception as e:
-                logger.warning(f"Model load failed: {e}.")
-                self.loaded = False
-                self.error_message = str(e)
-                self.loaded = False
-                self.error_message = str(e)
+            # Strategy 3: Standard fallback to base CLIP model
+            if not loaded_successfully:
+                fallback_model = "openai/clip-vit-base-patch32"
+                logger.info(f"Loading fallback transformers CLIPModel '{fallback_model}'...")
+                self.processor = CLIPProcessor.from_pretrained(fallback_model)
+                self.model = CLIPModel.from_pretrained(
+                    fallback_model,
+                    torch_dtype=self.dtype,
+                    low_cpu_mem_usage=True
+                ).to(self.device)
+
+            self.model.eval()
+
+            # Pre-compute text embeddings once at startup to save CPU cycles per request
+            logger.info("Pre-computing text embeddings for target concepts...")
+            text_queries = [f"mammogram showing {label.replace('_', ' ')}" for label in TARGET_LABELS]
+            
+            with torch.no_grad():
+                if hasattr(self.processor, "__call__"):
+                    inputs = self.processor(text=text_queries, return_tensors="pt", padding=True).to(self.device)
+                    if hasattr(self.model, "get_text_features"):
+                        text_outputs = self.model.get_text_features(**inputs)
+                    else:
+                        text_outputs = self.model.encode_text(inputs["input_ids"])
+                else:
+                    import open_clip
+                    tokenizer = open_clip.get_tokenizer(f"hf-hub:{self.checkpoint}")
+                    text_tokens = tokenizer(text_queries).to(self.device)
+                    text_outputs = self.model.encode_text(text_tokens)
+
+                if not isinstance(text_outputs, torch.Tensor):
+                    text_features = getattr(text_outputs, "pooler_output", text_outputs[0])
+                else:
+                    text_features = text_outputs
+                
+                self.precomputed_text_features = (text_features / text_features.norm(dim=-1, keepdim=True)).to(dtype=self.dtype)
+
+            self.loaded = True
+            self.error_message = None
+            gc.collect()
+            logger.info(f"Mammo-CLIP inference engine successfully initialized on {self.device}!")
+
         except Exception as e:
-            logger.error(f"Failed to initialize PyTorch environment: {e}")
+            logger.error(f"Failed to load Mammo-CLIP model: {e}")
             self.loaded = False
             self.error_message = str(e)
 
@@ -87,34 +142,30 @@ class MammoCLIPInferenceEngine:
         """
         start_time = time.time()
 
-        if not self.loaded or self.model is None or self.processor is None:
+        if not self.loaded or self.model is None or self.processor is None or self.precomputed_text_features is None:
             raise RuntimeError("MODEL_UNAVAILABLE: Mammo-CLIP model is not loaded in memory")
 
         import torch
-        text_queries = [f"mammogram showing {label.replace('_', ' ')}" for label in TARGET_LABELS]
-        inputs = self.processor(text=text_queries, return_tensors="pt", padding=True)
-        # Cast inputs to float16 to match model precision
-        inputs = {k: v.half() if v.dtype == torch.float32 else v for k, v in inputs.items()}
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
-            text_outputs = self.model.get_text_features(**inputs)
-            if not isinstance(text_outputs, torch.Tensor):
-                text_features = getattr(text_outputs, "pooler_output", text_outputs[0])
+            image_tensors = torch.tensor(processed_tensors, dtype=self.dtype).to(self.device)
+            
+            if hasattr(self.model, "get_image_features"):
+                image_outputs = self.model.get_image_features(image_tensors)
+            elif hasattr(self.model, "encode_image"):
+                image_outputs = self.model.encode_image(image_tensors)
             else:
-                text_features = text_outputs
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                image_outputs = self.model(pixel_values=image_tensors).image_embeds
 
-            image_tensors = torch.tensor(processed_tensors, dtype=torch.float16).to(self.device)  # float16
-            image_outputs = self.model.get_image_features(image_tensors)
             if not isinstance(image_outputs, torch.Tensor):
                 image_features = getattr(image_outputs, "pooler_output", image_outputs[0])
             else:
                 image_features = image_outputs
+                
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
 
             # Cosine similarity and Softmax per view image
-            similarity_matrix = (100.0 * image_features @ text_features.T).softmax(dim=-1).cpu().numpy()
+            similarity_matrix = (100.0 * image_features @ self.precomputed_text_features.T).softmax(dim=-1).cpu().numpy()
 
         per_view_results = []
         for idx, view_meta in enumerate(view_metadata):
@@ -133,7 +184,7 @@ class MammoCLIPInferenceEngine:
                 "predictions": concept_scores
             })
 
-        # Calculate mean across views (explicitly labeled as aggregate mean)
+        # Calculate mean across views
         avg_probs = similarity_matrix.mean(axis=0)
         aggregate_scores = []
         for label, prob in zip(TARGET_LABELS, avg_probs):
