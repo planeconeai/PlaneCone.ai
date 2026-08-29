@@ -47,6 +47,18 @@ def startup_event():
     thread.start()
     logger.info("Startup complete — model loading in background thread.")
 
+@app.get("/shiva-checking")
+def shiva_checking():
+    """Diagnostic endpoint checking service status, port, and engine load state."""
+    return {
+        "status": "WORKING",
+        "service": "planeconeai-mammo-ai",
+        "port": os.getenv("PORT", "8000"),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "model_loaded": engine.loaded,
+        "device": engine.device
+    }
+
 @app.get("/health", response_model=HealthResponse)
 def health_check():
     """Health check endpoint exposing microservice status and model load state."""
