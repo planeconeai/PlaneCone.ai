@@ -5,7 +5,7 @@ WORKDIR /app
 # Install system dependencies for imaging & CPU PyTorch
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/*
