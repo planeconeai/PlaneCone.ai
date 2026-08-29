@@ -1,5 +1,6 @@
 import time
 import logging
+import threading
 from typing import List
 from fastapi import FastAPI, File, UploadFile, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -38,8 +39,13 @@ engine = MammoCLIPInferenceEngine.get_instance()
 
 @app.on_event("startup")
 def startup_event():
-    """Load Mammo-CLIP model at application startup (singleton pattern)."""
-    engine.load_model()
+    """Load model in background thread so port binds immediately."""
+    def load_in_background():
+        logger.info("Starting background model load thread...")
+        engine.load_model()
+    thread = threading.Thread(target=load_in_background, daemon=True)
+    thread.start()
+    logger.info("Startup complete — model loading in background thread.")
 
 @app.get("/health", response_model=HealthResponse)
 def health_check():

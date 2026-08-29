@@ -53,12 +53,15 @@ class MammoCLIPInferenceEngine:
                     logger.info("Loading via open_clip library...")
                     self.model, _, self.processor = open_clip.create_model_and_transforms(f"hf-hub:{self.checkpoint}")
                     self.tokenizer = open_clip.get_tokenizer(f"hf-hub:{self.checkpoint}")
-                    self.model = self.model.to(self.device)
+                    self.model = self.model.half().to(self.device)  # float16 — 50% less RAM
                 except Exception as open_err:
                     logger.info(f"open_clip load notice ({open_err}), trying transformers CLIPModel...")
                     from transformers import CLIPModel, CLIPProcessor
                     self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-                    self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(self.device)
+                    self.model = CLIPModel.from_pretrained(
+                        "openai/clip-vit-base-patch32",
+                        torch_dtype=torch.float16  # float16 — 50% less RAM
+                    ).to(self.device)
 
                 self.model.eval()
                 self.loaded = True
@@ -89,7 +92,10 @@ class MammoCLIPInferenceEngine:
 
         import torch
         text_queries = [f"mammogram showing {label.replace('_', ' ')}" for label in TARGET_LABELS]
-        inputs = self.processor(text=text_queries, return_tensors="pt", padding=True).to(self.device)
+        inputs = self.processor(text=text_queries, return_tensors="pt", padding=True)
+        # Cast inputs to float16 to match model precision
+        inputs = {k: v.half() if v.dtype == torch.float32 else v for k, v in inputs.items()}
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
             text_outputs = self.model.get_text_features(**inputs)
@@ -99,7 +105,7 @@ class MammoCLIPInferenceEngine:
                 text_features = text_outputs
             text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
-            image_tensors = torch.tensor(processed_tensors, dtype=torch.float32).to(self.device)
+            image_tensors = torch.tensor(processed_tensors, dtype=torch.float16).to(self.device)  # float16
             image_outputs = self.model.get_image_features(image_tensors)
             if not isinstance(image_outputs, torch.Tensor):
                 image_features = getattr(image_outputs, "pooler_output", image_outputs[0])
