@@ -60,16 +60,26 @@ class MammoCLIPInferenceEngine:
 
             from transformers import CLIPModel, CLIPProcessor
 
-            # Primary Strategy: Load standard CLIP model with low_cpu_mem_usage
-            target_model = self.checkpoint if "openai" in self.checkpoint or "clip" in self.checkpoint.lower() else "openai/clip-vit-base-patch32"
-            logger.info(f"Loading transformers CLIPModel '{target_model}' (low_cpu_mem_usage=True)...")
-            self.processor = CLIPProcessor.from_pretrained(target_model)
-            self.model = CLIPModel.from_pretrained(
-                target_model,
-                dtype=self.dtype,
-                low_cpu_mem_usage=True
-            ).to(self.device)
-            loaded_successfully = True
+            # 1. Processor: Always load standard CLIPProcessor from base model to prevent missing preprocessor_config errors
+            base_model = "openai/clip-vit-base-patch32"
+            logger.info("Loading standard CLIPProcessor...")
+            self.processor = CLIPProcessor.from_pretrained(base_model)
+
+            # 2. Model: Try loading specified checkpoint, fallback to base_model
+            try:
+                logger.info(f"Loading CLIPModel '{self.checkpoint}' (low_cpu_mem_usage=True)...")
+                self.model = CLIPModel.from_pretrained(
+                    self.checkpoint,
+                    dtype=self.dtype,
+                    low_cpu_mem_usage=True
+                ).to(self.device)
+            except Exception as model_err:
+                logger.warning(f"Could not load '{self.checkpoint}' ({model_err}). Falling back to '{base_model}'...")
+                self.model = CLIPModel.from_pretrained(
+                    base_model,
+                    dtype=self.dtype,
+                    low_cpu_mem_usage=True
+                ).to(self.device)
 
             self.model.eval()
 
