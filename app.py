@@ -80,7 +80,10 @@ def shiva_checking():
         }
 
 @app.get("/health", response_model=HealthResponse)
+@app.get("/status", response_model=HealthResponse)
+@app.get("/ping", response_model=HealthResponse)
 @app.head("/health")
+@app.head("/status")
 def health_check():
     """Health check endpoint exposing microservice status and model load state."""
     return HealthResponse(
