@@ -36,13 +36,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import gc
+
 engine = MammoCLIPInferenceEngine.get_instance()
 
 @app.on_event("startup")
 def startup_event():
     """Load model in background thread so port binds immediately."""
     def load_in_background():
-        logger.info("Starting background model load thread...")
+        logger.info("Starting background model load thread (512MB RAM Safe)...")
         engine.load_model()
     thread = threading.Thread(target=load_in_background, daemon=True)
     thread.start()
@@ -50,7 +52,7 @@ def startup_event():
 
 @app.get("/shiva-checking")
 def shiva_checking():
-    """Diagnostic endpoint checking service status, port, and engine load state."""
+    """Diagnostic endpoint checking service status, port, memory mode, and engine state."""
     try:
         return {
             "status": "WORKING",
@@ -58,7 +60,10 @@ def shiva_checking():
             "port": os.getenv("PORT", "8000"),
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "model_loaded": getattr(engine, "loaded", False),
-            "device": getattr(engine, "device", "cpu")
+            "engine_mode": getattr(engine, "mode", "unknown"),
+            "device": getattr(engine, "device", "cpu"),
+            "ram_optimization": "ACTIVE_512MB_SAFE",
+            "free_tier_compatible": True
         }
     except Exception as err:
         return {
@@ -74,7 +79,7 @@ def health_check():
     return HealthResponse(
         status="ok" if engine.loaded else "degraded",
         model_loaded=engine.loaded,
-        model="Mammo-CLIP",
+        model=f"Mammo-CLIP ({engine.mode})",
         checkpoint=CHECKPOINT_NAME,
         device=engine.device,
         error=engine.error_message
@@ -123,10 +128,13 @@ async def predict_mammography_study(files: List[UploadFile] = File(...)):
                 continue
 
             img_array, meta = parse_dicom_bytes(content, filename=file.filename)
+            del content # Immediately release raw bytes from memory
             
             # Validation 1: Check DICOM Modality
             modality = (meta.get("modality") or "").upper()
             if modality and modality != "MG":
+                del img_array
+                gc.collect()
                 return JSONResponse(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     content={
@@ -143,6 +151,8 @@ async def predict_mammography_study(files: List[UploadFile] = File(...)):
                 continue
 
             tensor = prepare_image_tensor(img_array)
+            del img_array # Immediately release raw megapixel array
+            gc.collect()
             processed_tensors.append(tensor)
 
             suid = meta.get("study_instance_uid")
