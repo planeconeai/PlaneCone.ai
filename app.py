@@ -50,6 +50,12 @@ def startup_event():
     thread.start()
     logger.info("Startup complete — model loading in background thread.")
 
+@app.get("/")
+@app.head("/")
+def root_health_check():
+    """Root health check for Render load balancer."""
+    return {"status": "ok", "service": "planeconeai-mammo-ai", "mode": engine.mode}
+
 @app.get("/shiva-checking")
 def shiva_checking():
     """Diagnostic endpoint checking service status, port, memory mode, and engine state."""
