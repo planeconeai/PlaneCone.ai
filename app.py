@@ -2,8 +2,8 @@ import os
 import time
 import logging
 import threading
-from typing import List
-from fastapi import FastAPI, File, UploadFile, HTTPException, status
+from typing import List, Optional
+from fastapi import FastAPI, File, UploadFile, Header, HTTPException, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -104,12 +104,27 @@ def model_info():
         license="CC BY-NC-SA 4.0 (Non-Commercial Research Only)"
     )
 
-@app.post("/predict", response_model=PredictResponse, responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
-async def predict_mammography_study(files: List[UploadFile] = File(...)):
+@app.post("/predict", response_model=PredictResponse, responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}, 401: {"model": ErrorResponse}})
+async def predict_mammography_study(
+    files: List[UploadFile] = File(...),
+    x_internal_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)
+):
     """
-    Accepts DICOM mammography files (Modality=MG), validates StudyInstanceUID consistency,
+    Accepts DICOM mammography files (Modality=MG), validates internal authorization headers,
     runs Mammo-CLIP zero-shot text alignment, and returns structured per-view scores.
     """
+    expected_key = os.getenv("MAMMO_AI_INTERNAL_KEY", "planecone_secure_internal_key_2026")
+    auth_bearer = f"Bearer {expected_key}"
+
+    if os.getenv("MAMMO_AI_REQUIRE_AUTH", "true").lower() == "true":
+        if x_internal_api_key != expected_key and authorization != auth_bearer:
+            logger.warning("Unauthorized attempt to access /predict endpoint without valid internal key")
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"success": False, "error": {"code": "UNAUTHORIZED", "message": "Invalid internal API key or Bearer token."}}
+            )
+
     if not files:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
