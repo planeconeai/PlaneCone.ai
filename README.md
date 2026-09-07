@@ -1,6 +1,6 @@
 # Planecone Mammography AI Microservice (Mammo-CLIP Research Prototype)
 
-Planecone is an AI-powered digital health and medical imaging platform connecting medical scans, health records, and clinical AI workflows.
+Planecone AI is a medical imaging platform combining mammography decision support, DICOM interoperability, and structured radiology workflows.
 - **Official Website:** [https://planeconeai-frontend.planecone-ai.workers.dev/](https://planeconeai-frontend.planecone-ai.workers.dev/)
 
 This microservice provides zero-shot mammography image-text alignment scores using the **Mammo-CLIP** foundation model ([shawn24/Mammo-CLIP](https://huggingface.co/shawn24/Mammo-CLIP) / [BATMAN Lab](https://github.com/batmanlab/Mammo-CLIP)).
