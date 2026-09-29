@@ -1,0 +1,19 @@
+# ── Render Blueprint — planeconeai-mammo-ai ───────────────────────────────────
+services:
+  - type: web
+    name: planeconeai-mammo-ai
+    runtime: docker
+    region: singapore
+    plan: starter plus               # $25/mo — 2GB RAM needed for PyTorch
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    numInstances: 1
+
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: OMP_NUM_THREADS
+        value: "2"
