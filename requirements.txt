@@ -7,14 +7,14 @@ python-multipart>=0.0.6
 # ── CPU-only PyTorch (~200MB vs ~2GB with CUDA) ───────────────────────────────
 # This is the most important optimization — CUDA torch OOMs on Render free tier
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.2.2+cpu
-torchvision==0.17.2+cpu
+torch==2.6.0+cpu
+torchvision==0.21.0+cpu
 
 # ── ML / Imaging ──────────────────────────────────────────────────────────────
 transformers>=4.28.0,<5.0.0
 accelerate>=0.20.0
 open-clip-torch>=2.20.0,<3.0.0
-numpy>=1.21.0,<2.0.0
+numpy>=1.21.0
 pillow>=9.0.0
 
 # ── DICOM ─────────────────────────────────────────────────────────────────────
