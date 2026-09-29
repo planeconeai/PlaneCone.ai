@@ -4,11 +4,9 @@ uvicorn[standard]>=0.22.0
 pydantic>=1.10.0,<2.0.0
 python-multipart>=0.0.6
 
-# ── CPU-only PyTorch (~200MB vs ~2GB with CUDA) ───────────────────────────────
-# This is the most important optimization — CUDA torch OOMs on Render free tier
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.6.0+cpu
-torchvision==0.21.0+cpu
+# ── PyTorch (CPU-only on ARM64, compatible with x86_64) ───────────────────────
+torch>=2.5.0,<3.0.0
+torchvision>=0.20.0,<1.0.0
 
 # ── ML / Imaging ──────────────────────────────────────────────────────────────
 transformers>=4.28.0,<5.0.0

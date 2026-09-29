@@ -1,6 +1,6 @@
 # ============================================================================
 # PlaneConeAI Mammo AI — CI/CD Pipeline
-# Deploys to Render (Docker)
+# Triggers on push to main · Deploys to Oracle Cloud ARM64 VM (Docker Compose)
 # ============================================================================
 
 name: "Mammo AI — Build & Deploy"
@@ -36,31 +36,41 @@ jobs:
           ruff check . || true
 
   deploy:
-    name: "🚀 Deploy to Render"
+    name: "🚀 Deploy to Oracle Cloud VM"
     needs: quality
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: production
-      url: https://planeconeai-mammo-ai.onrender.com
     steps:
-      - name: Trigger Render Deploy
-        run: |
-          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}" \
-            --fail --silent --show-error
+      - name: Deploy via SSH to Oracle VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USERNAME || 'ubuntu' }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            echo "📥 Pulling latest Mammo-AI changes..."
+            cd /home/ubuntu/planeconeai/planeconeai-mammo-ai || cd /home/ubuntu/PlaneCone.ai/planeconeai-mammo-ai
+            git pull origin main
 
-      - name: Wait & verify health
-        run: |
-          echo "⏳ Waiting 120s for Docker build + model loading..."
-          sleep 120
-          for i in $(seq 1 12); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              https://planeconeai-mammo-ai.onrender.com/health || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ Mammo AI is healthy!"
-              exit 0
-            fi
-            echo "  Attempt $i/12 — status=$STATUS, retrying in 20s..."
-            sleep 20
-          done
-          echo "⚠️ Mammo AI may still be loading models — check Render dashboard"
+            echo "🐳 Rebuilding and restarting Mammo-AI container..."
+            cd ..
+            docker compose up -d --no-deps --build mammo-ai
+
+            echo "⏳ Verifying Mammo-AI health..."
+            sleep 25
+            for i in $(seq 1 12); do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                echo "✅ Mammo-AI is healthy and running on Oracle VM!"
+                exit 0
+              fi
+              echo "  Attempt $i/12 — status=$STATUS, retrying in 10s..."
+              sleep 10
+            done
+            echo "⚠️ Mammo-AI health check timed out. Checking container logs:"
+            docker compose logs --tail=50 mammo-ai
+            exit 1
