@@ -17,3 +17,9 @@ services:
         value: "1"
       - key: OMP_NUM_THREADS
         value: "2"
+      - key: ENVIRONMENT
+        value: production
+      - key: MAMMO_CLIP_CHECKPOINT
+        value: "shawn24/Mammo-CLIP"
+      - key: ALLOWED_ORIGINS
+        value: "https://planeconeai-frontend.planecone-ai.workers.dev,https://planeconeai-backend-c77e.onrender.com"
