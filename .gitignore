@@ -1,17 +1,17 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Virtual environments
+venv/
 .venv/
 env/
-venv/
 ENV/
-.pytest_cache/
-.coverage
-htmlcov/
-*.dcm
-*.dicom
-*.png
-*.jpg
-*.jpeg
-.env
-.env.local
+
+# Logs
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
