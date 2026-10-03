@@ -60,6 +60,7 @@ def root_health_check():
     return {"status": "ok", "service": "planeconeai-mammo-ai", "mode": engine.mode}
 
 @app.get("/shiva-checking")
+@app.get("/shiva/checking")
 def shiva_checking():
     """Diagnostic endpoint checking service status, port, memory mode, and engine state."""
     try:
